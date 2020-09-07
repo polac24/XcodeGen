@@ -2228,6 +2228,7 @@
 		6300B083DBBB177437172F25 /* MyScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
+			dependencyFile = "$(DERIVED_FILE_DIR)/target.d";
 			files = (
 			);
 			inputFileListPaths = (
@@ -2243,7 +2244,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "echo \"You ran a script!\"\n";
+			shellScript = "echo \"You ran a script!\"\ntouch \"${DERIVED_FILE_DIR}/target.d\"\n";
 		};
 		694D2893BD4C5D54ABAA71C3 /* Copy Swift Objective-C Interface Header */ = {
 			isa = PBXShellScriptBuildPhase;
