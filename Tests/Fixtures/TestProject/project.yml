@@ -57,7 +57,13 @@ targets:
         optional: true
     dependencies:
       - target: Framework_macOS
+        copy:
+            destination: plugins
+            subpath: "test"
       - target: XPC Service
+      - target: NetworkSystemExtension
+      - target: EndpointSecuritySystemExtension
+      - target: DriverKitDriver
       - sdk: Contacts.framework
       - sdk: libc++.tbd
       - sdk: libz.dylib
@@ -116,16 +122,21 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: com.project.app
     dependencies:
       - target: Framework_iOS
+        platformFilter: all
       - target: StaticLibrary_ObjC_iOS
       - carthage: Result
+        platformFilter: macOS
       - carthage: SwiftyJSON
         linkType: static
+        platformFilter: iOS
       - target: Framework2_iOS
         weak: true
+        platformFilter: iOS
       - target: App_watchOS
       - target: iMessageApp
       - sdk: Contacts.framework
       - bundle: BundleX.bundle
+      - { bundle: BundleY.bundle, codeSign: false }
       - target: AnotherProject/ExternalTarget
       - target: App_Clip
     onlyCopyFilesOnInstall: true
@@ -212,6 +223,44 @@ targets:
     sources:
       - path: iMessageStickers
 
+  DriverKitDriver:
+    platform: macOS
+    type: driver-extension
+    sources:
+      - DriverKit Driver
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.project.App-macOS.Driver
+      CODE_SIGN_ENTITLEMENTS: DriverKit Driver/Driver.entitlements
+      SDKROOT: driverkit
+      DRIVERKIT_DEPLOYMENT_TARGET: 20.4
+    scheme: {}
+    dependencies:
+      - sdk: DriverKit.framework
+
+  NetworkSystemExtension:
+    platform: macOS
+    type: system-extension
+    sources:
+      - Network Extension
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.project.App-macOS.NetworkExtension
+      CODE_SIGN_ENTITLEMENTS: Network Extension/NetworkExtension.entitlements
+    scheme: {}
+    dependencies:
+      - sdk: NetworkExtension.framework
+
+  EndpointSecuritySystemExtension:
+    platform: macOS
+    type: system-extension
+    sources:
+      - EndpointSecurity Extension
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.project.App-macOS.EndpointSecurity
+      CODE_SIGN_ENTITLEMENTS: EndpointSecurity Extension/EndpointSecurity.entitlements
+    scheme: {}
+    dependencies:
+      - sdk: libEndpointSecurity.tbd
+
   StaticLibrary_ObjC:
     type: library.static
     platform: [iOS, tvOS, watchOS, macOS]
@@ -239,6 +288,8 @@ targets:
     dependencies:
       - carthage: Result
       - target: StaticLibrary_ObjC_${platform}
+      - target: Framework2_${platform}
+        platforms: [tvOS, watchOS]
 
   Framework2:
     type: framework
@@ -341,6 +392,7 @@ schemes:
       preActions:
         - script: echo Starting Framework Build
           settingsTarget: Framework_iOS
+      runPostActionsOnFailure: true
     run:
       commandLineArguments:
         argument: YES

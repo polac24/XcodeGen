@@ -70,12 +70,13 @@ public class SchemeGenerator {
                     for configVariant in targetScheme.configVariants {
 
                         let schemeName = "\(target.name) \(configVariant)"
-
+                        
                         let debugConfig = project.configs
-                            .first { $0.type == .debug && $0.name.contains(configVariant) }!
+                            .first(including: configVariant, for: .debug)!
+                        
                         let releaseConfig = project.configs
-                            .first { $0.type == .release && $0.name.contains(configVariant) }!
-
+                            .first(including: configVariant, for: .release)!
+                     
                         let scheme = Scheme(
                             name: schemeName,
                             target: target,
@@ -182,7 +183,8 @@ public class SchemeGenerator {
             preActions: scheme.build.preActions.map(getExecutionAction),
             postActions: scheme.build.postActions.map(getExecutionAction),
             parallelizeBuild: scheme.build.parallelizeBuild,
-            buildImplicitDependencies: scheme.build.buildImplicitDependencies
+            buildImplicitDependencies: scheme.build.buildImplicitDependencies,
+            runPostActionsOnFailure: scheme.build.runPostActionsOnFailure
         )
 
         let testables = zip(testTargets, testBuildTargetEntries).map { testTarget, testBuilEntries in
@@ -226,6 +228,7 @@ public class SchemeGenerator {
             environmentVariables: testVariables,
             language: scheme.test?.language,
             region: scheme.test?.region,
+            systemAttachmentLifetime: scheme.test?.systemAttachmentLifetime,
             customLLDBInitFile: scheme.test?.customLLDBInit
         )
 
@@ -443,6 +446,19 @@ extension PBXProductType {
             return true
         default:
             return false
+        }
+    }
+}
+
+extension Scheme.Test {
+    var systemAttachmentLifetime: XCScheme.TestAction.AttachmentLifetime? {
+        switch (captureScreenshotsAutomatically, deleteScreenshotsWhenEachTestSucceeds) {
+        case (false, _):
+            return .keepNever
+        case (true, false):
+            return .keepAlways
+        case (true, true):
+            return nil
         }
     }
 }
