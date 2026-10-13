@@ -73,12 +73,23 @@ class ProjectSpecTests: XCTestCase {
         describe {
 
             $0.it("has correct build setting") {
+                try expect(Platform.auto.deploymentTargetSetting) == ""
                 try expect(Platform.iOS.deploymentTargetSetting) == "IPHONEOS_DEPLOYMENT_TARGET"
                 try expect(Platform.tvOS.deploymentTargetSetting) == "TVOS_DEPLOYMENT_TARGET"
                 try expect(Platform.watchOS.deploymentTargetSetting) == "WATCHOS_DEPLOYMENT_TARGET"
                 try expect(Platform.macOS.deploymentTargetSetting) == "MACOSX_DEPLOYMENT_TARGET"
+                try expect(Platform.visionOS.deploymentTargetSetting) == "XROS_DEPLOYMENT_TARGET"
             }
 
+            $0.it("has correct sdk root") {
+                try expect(Platform.auto.sdkRoot) == "auto"
+                try expect(Platform.iOS.sdkRoot) == "iphoneos"
+                try expect(Platform.tvOS.sdkRoot) == "appletvos"
+                try expect(Platform.watchOS.sdkRoot) == "watchos"
+                try expect(Platform.macOS.sdkRoot) == "macosx"
+                try expect(Platform.visionOS.sdkRoot) == "xros"
+            }
+            
             $0.it("parses version correctly") {
                 try expect(Version.parse("2").deploymentTarget) == "2.0"
                 try expect(Version.parse("2.0").deploymentTarget) == "2.0"
@@ -126,7 +137,7 @@ class ProjectSpecTests: XCTestCase {
                 project.settings = invalidSettings
                 project.configFiles = ["invalidConfig": "invalidConfigFile"]
                 project.fileGroups = ["invalidFileGroup"]
-                project.packages = ["invalidLocalPackage": .local(path: "invalidLocalPackage", group: nil)]
+                project.packages = ["invalidLocalPackage": .local(path: "invalidLocalPackage", group: nil, excludeFromProject: false)]
                 project.settingGroups = ["settingGroup1": Settings(
                     configSettings: ["invalidSettingGroupConfig": [:]],
                     groups: ["invalidSettingGroupSettingGroup"]
@@ -156,8 +167,8 @@ class ProjectSpecTests: XCTestCase {
                             Dependency(type: .framework, reference: "dependency2"),
 
                             // multiple package dependencies with different products should be allowed
-                            Dependency(type: .package(product: "one"), reference: "package1"),
-                            Dependency(type: .package(product: "two"), reference: "package1"),
+                            Dependency(type: .package(products: ["one"]), reference: "package1"),
+                            Dependency(type: .package(products: ["two"]), reference: "package1"),
                         ]
                     ),
                     Target(
@@ -178,7 +189,85 @@ class ProjectSpecTests: XCTestCase {
 
                 try expectNoValidationError(project, .duplicateDependencies(target: "target1", dependencyReference: "package1"))
             }
-
+            
+            $0.it("unexpected supported destinations for watch app") {
+                var project = baseProject
+                project.targets = [
+                    Target(
+                        name: "target1",
+                        type: .application,
+                        platform: .watchOS,
+                        supportedDestinations: [.macOS]
+                    )
+                ]
+                try expectValidationError(project, .unexpectedTargetPlatformForSupportedDestinations(target: "target1", platform: .watchOS))
+            }
+            
+            $0.it("watchOS in multiplatform app's supported destinations") {
+                var project = baseProject
+                project.targets = [
+                    Target(
+                        name: "target1",
+                        type: .application,
+                        platform: .auto,
+                        supportedDestinations: [.watchOS]
+                    )
+                ]
+                try expectValidationError(project, .containsWatchOSDestinationForMultiplatformApp(target: "target1"))
+            }
+            
+            $0.it("watchOS in non-app's supported destinations") {
+                var project = baseProject
+                project.targets = [
+                    Target(
+                        name: "target1",
+                        type: .framework,
+                        platform: .auto,
+                        supportedDestinations: [.watchOS]
+                    )
+                ]
+                try expectNoValidationError(project, .containsWatchOSDestinationForMultiplatformApp(target: "target1"))
+            }
+            
+            $0.it("multiple definitions of mac platform in supported destinations") {
+                var project = baseProject
+                project.targets = [
+                    Target(
+                        name: "target1",
+                        type: .application,
+                        platform: .iOS,
+                        supportedDestinations: [.macOS, .macCatalyst]
+                    )
+                ]
+                try expectValidationError(project, .multipleMacPlatformsInSupportedDestinations(target: "target1"))
+            }
+            
+            $0.it("invalid target platform for macCatalyst supported destinations") {
+                var project = baseProject
+                project.targets = [
+                    Target(
+                        name: "target1",
+                        type: .application,
+                        platform: .tvOS,
+                        supportedDestinations: [.tvOS, .macCatalyst]
+                    )
+                ]
+                try expectValidationError(project, .invalidTargetPlatformForSupportedDestinations(target: "target1"))
+            }
+            
+            $0.it("missing target platform in supported destinations") {
+                var project = baseProject
+                project.targets = [
+                    Target(
+                        name: "target1",
+                        type: .application,
+                        platform: .iOS,
+                        supportedDestinations: [.tvOS]
+                    )
+                ]
+                try expectValidationError(project, .missingTargetPlatformInSupportedDestinations(target: "target1", platform: .iOS))
+            }
+            
             $0.it("allows non-existent configurations") {
                 var project = baseProject
                 project.options = SpecOptions(disabledValidations: [.missingConfigs])
@@ -205,7 +294,7 @@ class ProjectSpecTests: XCTestCase {
                     sources: ["invalidSource"],
                     dependencies: [
                         Dependency(type: .target, reference: "invalidDependency"),
-                        Dependency(type: .package(product: nil), reference: "invalidPackage"),
+                        Dependency(type: .package(products: []), reference: "invalidPackage"),
                     ],
                     preBuildScripts: [BuildScript(script: .path("invalidPreBuildScript"), name: "preBuildScript1")],
                     postCompileScripts: [BuildScript(script: .path("invalidPostCompileScript"))],
@@ -229,6 +318,17 @@ class ProjectSpecTests: XCTestCase {
 
                 project.targets[0].scheme?.configVariants = ["invalidVariant"]
                 try expectValidationError(project, .invalidTargetSchemeConfigVariant(target: "target1", configVariant: "invalidVariant", configType: .debug))
+            }
+
+            $0.it("fails with empty source path") {
+                var project = baseProject
+                project.targets = [Target(
+                    name: "target1",
+                    type: .application,
+                    platform: .iOS,
+                    sources: ["", "validSource"]
+                )]
+                try expectValidationError(project, .emptySourcePath(target: "target1"))
             }
 
             $0.it("fails with invalid aggregate target") {
@@ -350,10 +450,25 @@ class ProjectSpecTests: XCTestCase {
                 try expectValidationError(project, .missingDefaultConfig(configName: "foo"))
             }
 
+            $0.it("fails with invalid project format") {
+                var project = baseProject
+                project.options = SpecOptions(projectFormat: "xcode99_0")
+                try expectValidationError(project, .invalidProjectFormat("xcode99_0"))
+                try expect(SpecValidationError.ValidationError.invalidProjectFormat("xcode99_0").description) == "Invalid projectFormat \"xcode99_0\". Valid values are: xcode27_0, xcode26_3, xcode16_3, xcode16_0, xcode15_3, xcode15_0, xcode14_0"
+            }
+
+            $0.it("allows valid project formats") {
+                for projectFormat in ProjectFormat.allCases {
+                    var project = baseProject
+                    project.options = SpecOptions(projectFormat: projectFormat.rawValue)
+                    try expectNoValidationError(project, .invalidProjectFormat(projectFormat.rawValue))
+                }
+            }
+
             $0.it("validates config settings format") {
                 var project = baseProject
                 project.configs = Config.defaultConfigs
-                project.settings.buildSettings = ["Debug": ["SETTING": "VALUE"], "Release": ["SETTING": "VALUE"]]
+                project.settings.buildSettings = ["Debug": "VALUE", "Release": "VALUE"]
 
                 try expectValidationError(project, .invalidPerConfigSettings)
             }
@@ -457,6 +572,115 @@ class ProjectSpecTests: XCTestCase {
 
                 try expectValidationError(project, .multipleDefaultTestPlans)
             }
+
+            $0.it("fails on packages has not plugin package reference") {
+                var project = baseProject
+                project.targets = [
+                    Target(
+                        name: "target",
+                        type: .application,
+                        platform: .iOS,
+                        buildToolPlugins: [
+                            BuildToolPlugin(plugin: "plugin", package: "package")
+                        ]
+                    )
+                ]
+                try expectValidationError(project, .invalidPluginPackageReference(plugin: "plugin", package: "package"))
+            }
+
+            $0.it("allow on packages has plugin package reference") {
+                var project = baseProject
+                project.packages["package"] = .remote(url: "url", versionRequirement: .branch("branch"))
+                project.targets = [
+                    Target(
+                        name: "target",
+                        type: .application,
+                        platform: .iOS,
+                        buildToolPlugins: [
+                            BuildToolPlugin(plugin: "plugin", package: "package")
+                        ]
+                    )
+                ]
+                try expectNoValidationError(project, .invalidPluginPackageReference(plugin: "plugin", package: "package"))
+            }
+        }
+    }
+
+    func testAllTrackedFilesExcludesIgnoredFiles() {
+        describe {
+            let directoryPath = Path(components: [NSTemporaryDirectory(), ProcessInfo.processInfo.globallyUniqueString])
+
+            $0.after {
+                try? directoryPath.delete()
+            }
+
+            $0.it("excludes .DS_Store and .orig files from tracked source files") {
+                let sourcesDir = directoryPath + "Sources"
+                let featureDir = sourcesDir + "Feature"
+                let assetsDir = sourcesDir + "Assets.xcassets"
+                try featureDir.mkpath()
+                try assetsDir.mkpath()
+                try (sourcesDir + "main.swift").write("")
+                try (sourcesDir + ".DS_Store").write("")
+                try (sourcesDir + "file.swift.orig").write("")
+                try (featureDir + "Feature.swift").write("")
+                try (featureDir + ".DS_Store").write("")
+                try (assetsDir + ".DS_Store").write("")
+
+                let target = Target(
+                    name: "App",
+                    type: .application,
+                    platform: .iOS,
+                    sources: [TargetSource(path: "Sources")]
+                )
+                let project = Project(basePath: directoryPath, name: "Test", targets: [target])
+
+                try expect(Set(project.allTrackedFiles)) == [
+                    sourcesDir,
+                    sourcesDir + "main.swift",
+                    featureDir,
+                    featureDir + "Feature.swift",
+                    assetsDir,
+                ]
+            }
+
+            $0.it("excludes .DS_Store and .orig files from tracked fileGroup files") {
+                let fileGroupDir = directoryPath + "Resources"
+                try fileGroupDir.mkpath()
+                try (fileGroupDir + "image.png").write("")
+                try (fileGroupDir + ".DS_Store").write("")
+                try (fileGroupDir + "image.png.orig").write("")
+
+                let project = Project(
+                    basePath: directoryPath,
+                    name: "Test",
+                    fileGroups: ["Resources"]
+                )
+
+                try expect(Set(project.allTrackedFiles)) == [
+                    fileGroupDir,
+                    fileGroupDir + "image.png",
+                ]
+            }
+        }
+    }
+
+    func testDefaultExcludedFiles() {
+        describe {
+            $0.it("matches default excluded file names and extensions") {
+                try expect(FileType.isDefaultExcluded(".DS_Store")) == true
+                try expect(FileType.isDefaultExcluded("Sources/.DS_Store")) == true
+                try expect(FileType.isDefaultExcluded("Sources/file.swift.orig")) == true
+            }
+
+            $0.it("doesn't match similar names") {
+                try expect(FileType.isDefaultExcluded("Sources/file.swift")) == false
+                try expect(FileType.isDefaultExcluded("Sources/file.original")) == false
+                try expect(FileType.isDefaultExcluded("Sources/orig")) == false
+                try expect(FileType.isDefaultExcluded("Sources/.orig")) == false
+                try expect(FileType.isDefaultExcluded("Sources/file.ORIG")) == false
+                try expect(FileType.isDefaultExcluded("Sources/DS_Store")) == false
+            }
         }
     }
 
@@ -509,6 +733,7 @@ class ProjectSpecTests: XCTestCase {
                                                                                   runOnlyWhenInstalling: true,
                                                                                   showEnvVars: true,
                                                                                   basedOnDependencyAnalysis: false)],
+                                                    buildToolPlugins: [BuildToolPlugin(plugin: "plugin", package: "Yams")],
                                                     postCompileScripts: [BuildScript(script: .path("cmd.sh"),
                                                                                      name: "Bar script",
                                                                                      inputFiles: ["foo"],
@@ -561,6 +786,7 @@ class ProjectSpecTests: XCTestCase {
                                                                          storeKitConfiguration: "Configuration.storekit",
                                                                          disableMainThreadChecker: true,
                                                                          stopOnEveryMainThreadCheckerIssue: false,
+                                                                         disableThreadPerformanceChecker: true,
                                                                          commandLineArguments: ["foo": true],
                                                                          environmentVariables: [XCScheme.EnvironmentVariable(variable: "environmentVariable",
                                                                                                                              value: "bar",
@@ -601,6 +827,7 @@ class ProjectSpecTests: XCTestCase {
                                                                                            configVariants: ["foo"],
                                                                                            gatherCoverageData: true,
                                                                                            disableMainThreadChecker: true,
+                                                                                           disableThreadPerformanceChecker: true,
                                                                                            commandLineArguments: ["foo": true],
                                                                                            environmentVariables: [XCScheme.EnvironmentVariable(variable: "environmentVariable",
                                                                                                                                                value: "bar",
@@ -645,10 +872,18 @@ class ProjectSpecTests: XCTestCase {
                                                                                                                         value: "bar",
                                                                                                                         enabled: false)],
                                                                     enableGPUFrameCaptureMode: .openGL,
+                                                                    enableAddressSanitizer: true,
+                                                                    enableASanStackUseAfterReturn: true,
+                                                                    enableThreadSanitizer: true,
+                                                                    enableUBSanitizer: true,
                                                                     launchAutomaticallySubstyle: "2",
                                                                     storeKitConfiguration: "Configuration.storekit"),
                                                     test: Scheme.Test(config: "Config",
                                                                       gatherCoverageData: true,
+                                                                      enableAddressSanitizer: true,
+                                                                      enableASanStackUseAfterReturn: true,
+                                                                      enableThreadSanitizer: true,
+                                                                      enableUBSanitizer: true,
                                                                       disableMainThreadChecker: true,
                                                                       randomExecutionOrder: false,
                                                                       parallelizable: false,
